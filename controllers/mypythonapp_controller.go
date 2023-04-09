@@ -19,13 +19,17 @@ package controllers
 import (
 	"context"
 	"fmt"
-
 	frontendv1 "frontendapp/api/v1"
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 )
 
 // MyPythonAppReconciler reconciles a MyPythonApp object
@@ -54,8 +58,97 @@ func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	operator := &frontendv1.MyPythonApp{}
 	err := r.Get(ctx, req.NamespacedName, operator)
 	if err != nil {
-		if errors.
+		if errors.IsNotFound(err) {
+			log.Info("Controller resources Must Be deleted not found teh reuired details")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Unable to get Operator")
+		return ctrl.Result{}, err
 	}
+	found := &appsv1.Deployment{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: operator.Namespace, Name: operator.Name}, found)
+
+	if err != nil && errors.IsNotFound(err) {
+		dep := r.deploymentForOperator(operator)
+		log.Info("Creating A new deployment For Operator", "Deployment.NameSpace", dep.Namespace, dep.Name)
+		err := r.Create(ctx, dep)
+		if err != nil {
+			log.Error(err, "Failed to Create The Deploment", dep.Name, "Namespce", dep.Namespace)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
+		return ctrl.Result{}, err
+	}
+	deploy := r.deploymentForOperator(operator)
+
+	if !equality.Semantic.DeepDerivative(deploy.Spec.Template, found.Spec.Template) {
+		found = deploy
+		log.Info("Updatng deployment Template for", "Name", found.Name, "Namespace", found.Namespace)
+		err = r.Update(ctx, found)
+		if err != nil {
+			log.Error(err, "Name:", found.Name, "Namespace:", found.Namespace)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+	size := operator.Spec.Size
+
+	if *found.Spec.Replicas != size {
+		found.Spec.Replicas = &size
+		err = r.Update(ctx, found)
+		if err != nil {
+			log.Error(err, "Not Possible to Scale Up The cluster")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	service := &v1.Service{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: operator.Namespace, Name: operator.Name}, service)
+	if err != nil && errors.IsNotFound(err) {
+		dep = r.serviceForOperator(operator)
+		log.Info("creating a new  Service", "Name:", dep.Name, "Namespace", dep.Namespace)
+		err = r.Create(ctx, service)
+		if err != nil {
+			log.Error(err, "Unable to find Associated Service", "Name:", dep.Name, "Namespace", dep.Namespace)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+	} else if err != nil {
+		log.Error(err, "Unable to Retrive service")
+		return ctrl.Result{}, err
+	}
+
+	podList := &v1.PodList{}
+	listOptions := []client.ListOption{
+		client.InNamespace(found.Namespace),
+		client.MatchingLabels(map[string]string{"app": found.Name, "Namespace": found.Namespace}),
+	}
+	if err = r.List(ctx, podList, listOptions...); err != nil {
+		log.Error(err, "Failed to list pods associated", "Name:", found.Name, "Namespace", found.Namespace)
+		return ctrl.Result{}, err
+	}
+	podNames := getPodName(podList.Items)
+
+	if !reflect.DeepEqual(operator.Status.PodList, podNames) {
+		operator.Status.PodList = podNames
+		log.Info("Updating operator Status Ffields")
+		err = r.Status().Update(ctx, operator)
+		if err != nil {
+			log.Error(err, "unable to update podlist to", "Namespace", operator.Namespace, "name", operator.Name)
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
+func getPodName(pods []v1.Pod) []string {
+	var podName []string
+	for _, val := range pods {
+		podName = append(podName, val.Name)
+	}
+	return podName
 }
 
 // SetupWithManager sets up the controller with the Manager.
