@@ -25,8 +25,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"reflect"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -107,7 +109,7 @@ func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	service := &v1.Service{}
 	err = r.Get(ctx, types.NamespacedName{Namespace: operator.Namespace, Name: operator.Name}, service)
 	if err != nil && errors.IsNotFound(err) {
-		dep = r.serviceForOperator(operator)
+		dep := r.serviceForOperator(operator)
 		log.Info("creating a new  Service", "Name:", dep.Name, "Namespace", dep.Namespace)
 		err = r.Create(ctx, service)
 		if err != nil {
@@ -156,4 +158,74 @@ func (r *MyPythonAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&frontendv1.MyPythonApp{}).
 		Complete(r)
+}
+
+func (r *MyPythonAppReconciler) deploymentForOperator(operator *frontendv1.MyPythonApp) *appsv1.Deployment {
+	ls := map[string]string{"app": operator.Name, "labels": operator.Name}
+	replicas := operator.Spec.Size
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      operator.Name,
+			Namespace: operator.Namespace,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{MatchLabels: ls},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: ls,
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{
+						{
+							Name:  operator.Spec.AppContainerName,
+							Image: operator.Spec.AppImage,
+							Ports: []v1.ContainerPort{
+								{
+									ContainerPort: operator.Spec.AppPort,
+								},
+							},
+						},
+						{
+							Name:    operator.Spec.MonitorContainerName,
+							Image:   operator.Spec.MonitorImage,
+							Command: []string{"sh", "-c", operator.Spec.MonitorCommand},
+						},
+					},
+				},
+			},
+		},
+	}
+	err := ctrl.SetControllerReference(operator, dep, r.Scheme)
+	if err != nil {
+		return nil
+	}
+	return dep
+}
+
+func (r *MyPythonAppReconciler) serviceForOperator(operator *frontendv1.MyPythonApp) *v1.Service {
+	ls := map[string]string{"app": operator.Name, "labels": operator.Name}
+	svc := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      operator.Name,
+			Namespace: operator.Namespace,
+		},
+		Spec: v1.ServiceSpec{
+			Selector: ls,
+			Ports: []v1.ServicePort{
+				{
+					Name:       operator.Spec.Service.Name,
+					Protocol:   v1.Protocol(operator.Spec.Service.Protocol),
+					Port:       operator.Spec.Service.Port,
+					TargetPort: intstr.FromInt(int(operator.Spec.Service.TargetPort)),
+					NodePort:   operator.Spec.Service.NodePort,
+				}},
+			Type: v1.ServiceType(operator.Spec.Service.Type),
+		},
+	}
+	err := ctrl.SetControllerReference(operator, svc, r.Scheme)
+	if err != nil {
+		return nil
+	}
+	return svc
 }

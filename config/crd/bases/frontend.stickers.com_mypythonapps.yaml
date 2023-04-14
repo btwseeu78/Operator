@@ -59,6 +59,9 @@ spec:
                 properties:
                   name:
                     type: string
+                  nodePort:
+                    format: int32
+                    type: integer
                   port:
                     format: int32
                     type: integer
@@ -71,6 +74,7 @@ spec:
                     type: string
                 required:
                 - name
+                - nodePort
                 - port
                 - protocol
                 - targetPort

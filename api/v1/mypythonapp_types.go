@@ -27,6 +27,7 @@ type ServiceSpec struct {
 	Port       int32  `json:"port"`
 	TargetPort int32  `json:"targetPort"`
 	Type       string `json:"type"`
+	NodePort   int32  `json:"nodePort"`
 }
 
 // MyPythonAppSpec defines the desired state of MyPythonApp
