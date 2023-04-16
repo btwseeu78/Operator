@@ -44,6 +44,8 @@ type MyPythonAppReconciler struct {
 //+kubebuilder:rbac:groups=frontend.stickers.com,resources=mypythonapps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=frontend.stickers.com,resources=mypythonapps/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=frontend.stickers.com,resources=mypythonapps/finalizers,verbs=update
+//+kubebuilder:rbac:groups=apps/v1,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=v1,resources=service,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -55,16 +57,16 @@ type MyPythonAppReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.1/pkg/reconcile
 func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := r.Log.WithValues("MyPythonApps", req.NamespacedName)
+	log := r.Log.WithValues("MyPythonApps", req.Name, "NameSpace", req.Namespace)
 	fmt.Println(log) //placeholder for now
 	operator := &frontendv1.MyPythonApp{}
 	err := r.Get(ctx, req.NamespacedName, operator)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Info("Controller resources Must Be deleted not found teh reuired details")
+			log.Info("Controller resources Must Be deleted not found the required details", "MyApp", req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "Unable to get Operator")
+		log.Error(err, "Unable to get Operator", "App", req.NamespacedName)
 		return ctrl.Result{}, err
 	}
 	found := &appsv1.Deployment{}
@@ -72,10 +74,10 @@ func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if err != nil && errors.IsNotFound(err) {
 		dep := r.deploymentForOperator(operator)
-		log.Info("Creating A new deployment For Operator", "Deployment.NameSpace", dep.Namespace, dep.Name)
+		log.Info("Creating A new deployment For Operator", "Deployment.Name", dep)
 		err := r.Create(ctx, dep)
 		if err != nil {
-			log.Error(err, "Failed to Create The Deploment", dep.Name, "Namespce", dep.Namespace)
+			log.Error(err, "Failed to Create The Deployment", "NamespacedName", dep.Name)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -89,7 +91,7 @@ func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		log.Info("Updatng deployment Template for", "Name", found.Name, "Namespace", found.Namespace)
 		err = r.Update(ctx, found)
 		if err != nil {
-			log.Error(err, "Name:", found.Name, "Namespace:", found.Namespace)
+			log.Error(err, "failed to Update", "Name:", found.Name, "Namespace:", found.Namespace)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -100,7 +102,7 @@ func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		found.Spec.Replicas = &size
 		err = r.Update(ctx, found)
 		if err != nil {
-			log.Error(err, "Not Possible to Scale Up The cluster")
+			log.Error(err, "Not Possible to Scale Up The Replicas", "Name", deploy.Name)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
@@ -111,14 +113,14 @@ func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil && errors.IsNotFound(err) {
 		dep := r.serviceForOperator(operator)
 		log.Info("creating a new  Service", "Name:", dep.Name, "Namespace", dep.Namespace)
-		err = r.Create(ctx, service)
+		err = r.Create(ctx, dep)
 		if err != nil {
 			log.Error(err, "Unable to find Associated Service", "Name:", dep.Name, "Namespace", dep.Namespace)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
-		log.Error(err, "Unable to Retrive service")
+		log.Error(err, "Unable to Retrive service", "svc", service.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -135,7 +137,7 @@ func (r *MyPythonAppReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if !reflect.DeepEqual(operator.Status.PodList, podNames) {
 		operator.Status.PodList = podNames
-		log.Info("Updating operator Status Ffields")
+		log.Info("Updating operator Status Ffields", "Name", operator.Name)
 		err = r.Status().Update(ctx, operator)
 		if err != nil {
 			log.Error(err, "unable to update podlist to", "Namespace", operator.Namespace, "name", operator.Name)
@@ -157,6 +159,8 @@ func getPodName(pods []v1.Pod) []string {
 func (r *MyPythonAppReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&frontendv1.MyPythonApp{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&v1.Service{}).
 		Complete(r)
 }
 

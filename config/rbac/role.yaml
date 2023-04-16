@@ -6,6 +6,18 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - apps/v1
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - frontend.stickers.com
   resources:
   - mypythonapps
@@ -31,3 +43,15 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - v1
+  resources:
+  - service
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

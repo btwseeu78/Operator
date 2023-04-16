@@ -3,10 +3,26 @@ kind: MyPythonApp
 metadata:
   labels:
     app.kubernetes.io/name: mypythonapp
-    app.kubernetes.io/instance: mypythonapp-sample
+    app.kubernetes.io/instance: mypythonappsample
     app.kubernetes.io/part-of: frontendapp
     app.kubernetes.io/managed-by: kustomize
     app.kubernetes.io/created-by: frontendapp
-  name: mypythonapp-sample
+  name: mypythonappsample
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  companyName: stickers Company
+  applicationDescription: Emoji Generate Application
+  appContainerName: myappcontainer
+  appImage: nginx:1.14.2
+  appPort: 80
+  monitorContainerName: monitoringcontainer
+  monitorImage: busybox:latest
+  monitorCommand: "sh -c 'while true; do wget -O /dev/null http://localhost:80; sleep 10; done'"
+  size: 3
+  service:
+    name: http
+    protocol: TCP
+    port: 80
+    targetPort: 80
+    nodePort: 30000
+    type: NodePort
